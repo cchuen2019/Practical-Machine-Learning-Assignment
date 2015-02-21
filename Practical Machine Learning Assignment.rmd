@@ -1,0 +1,115 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Mark C"
+output: html_document
+---
+
+Practical Machine Learning - An Analysis of the Weight Lifting Exercises Dataset
+==================================================================================
+
+# Executive Summary
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to analyze data from accelerometers on the belt, forearm, arm, and dumbell of six participants. They were asked to perform barbell lifts correctly and incorrectly in five different ways.
+
+For this assignment, the task is to analyse the  data provided to predict the manner in which each individual did their exercise.The libaries used in this assignment are caret and randomForest.
+
+
+```{r}
+library(Hmisc)
+library(caret)
+library(randomForest)
+library(foreach)
+library(doParallel)
+set.seed(8888)
+options(warn=-1)
+```
+
+# Data Processing and Analysis
+
+First, the data are loaded for the provided training and test data.
+Values that contained a "#DIV/0!" have been replaced with an NA value.
+
+## Loading the datasets
+```{r}
+training_data <- read.csv("pml-training.csv", na.strings=c("#DIV/0!") )
+testing_data <- read.csv("pml-testing.csv", na.strings=c("#DIV/0!") )
+```
+
+Then, the conversion of the data to numeric for the 8 columns is done.
+
+```{r}
+for(i in c(8:ncol(training_data)-1)) {training_data[,i] = as.numeric(as.character(training_data[,i]))}
+
+for(i in c(8:ncol(testing_data)-1)) {testing_data[,i] = as.numeric(as.character(testing_data[,i]))}
+```
+
+## Missing Data & Feature filtering
+
+Rows with missing values are removed as they did not contribute well to the prediction. Columns like  user name, timestamps and windows are not useful as well, thus those are removed.
+
+```{r}
+feature_set <- colnames(training_data[colSums(is.na(training_data)) == 0])[-(1:7)]
+model_data <- training_data[feature_set]
+feature_set
+```
+
+# Prediction model building
+
+We can start the model training by splitting the training data as the training and validation set. 
+
+```{r}
+idx <- createDataPartition(y=model_data$classe, p=0.75, list=FALSE )
+training <- model_data[idx,]
+testing <- model_data[-idx,]
+```
+
+We will use the random forest algorithm for the prediction. 5 random forests with 150 trees each will be built. We make use of parallel processing to build this model.
+
+```{r}
+registerDoParallel()
+x <- training[-ncol(training)]
+y <- training$classe
+
+rf <- foreach(ntree=rep(150, 6), .combine=randomForest::combine, .packages='randomForest') %dopar% {
+randomForest(x, y, ntree=ntree) 
+}
+```
+
+# Results and model accuracy
+
+The following confusion matrix shows the training and testing accuracy using the model built.
+```{r}
+predictions1 <- predict(rf, newdata=training)
+confusionMatrix(predictions1,training$classe)
+
+
+predictions2 <- predict(rf, newdata=testing)
+confusionMatrix(predictions2,testing$classe)
+```
+
+# Conclusion
+The model built using the randomForest algorithm is pretty accurate, with 99% testing accuracy.
+
+# Testing Set for submission
+
+Using the generated model on the testing set provided.
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+
+x <- testing_data
+x <- x[feature_set[feature_set!='classe']]
+answers <- predict(rf, newdata=x)
+
+answers
+
+pml_write_files(answers)
+```
+
